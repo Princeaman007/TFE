@@ -7,29 +7,41 @@ function VerifyEmail() {
   const [message, setMessage] = useState("Vérification en cours...");
 
   useEffect(() => {
-    fetch(`http://localhost:5000/api/auth/verify-email/${token}`)
-      .then((res) => res.json())
-      .then((data) => {
+    const verifyEmail = async () => {
+      try {
+        const response = await fetch(`http://localhost:5000/api/auth/verify-email/${token}`);
+
+        if (!response.ok) {
+          throw new Error("Erreur lors de la requête");
+        }
+
+        const data = await response.json();
         console.log("📩 Réponse du serveur :", data);
+
         setMessage(data.message);
 
         // ✅ Si l'email est déjà vérifié, on redirige vers la connexion
-        if (data.message === "Email déjà vérifié") {
-          setMessage("✅ Votre email est déjà vérifié. Vous pouvez vous connecter.");
+        if (data.message.includes("déjà vérifié")) {
+          setMessage("✅ Votre email est déjà vérifié. Vous serez redirigé vers la connexion...");
           setTimeout(() => navigate("/login"), 3000);
         }
 
         // ❌ Si le lien est invalide ou expiré
-        if (data.message === "Lien invalide ou expiré") {
+        else if (data.message.includes("invalide") || data.message.includes("expiré")) {
           setMessage("❌ Lien invalide ou expiré. Veuillez demander un nouveau lien.");
         }
 
         // ✅ Si la vérification est réussie, redirection après 3 secondes
-        if (data.message === "Email vérifié avec succès") {
-          setTimeout(() => navigate("Login"), 3000);
+        else if (data.message.includes("succès")) {
+          setTimeout(() => navigate("/login"), 3000); // ✅ Correction ici
         }
-      })
-      .catch(() => setMessage("❌ Erreur lors de la vérification."));
+      } catch (error) {
+        console.error("❌ Erreur lors de la vérification :", error);
+        setMessage("❌ Erreur lors de la vérification. Veuillez réessayer.");
+      }
+    };
+
+    verifyEmail();
   }, [token, navigate]);
 
   return (
