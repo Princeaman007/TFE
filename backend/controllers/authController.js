@@ -14,24 +14,39 @@ exports.register = async (req, res) => {
 
   console.log("🔍 Valeurs reçues :", req.body);
 
-  if (!password) {
-    return res.status(400).json({ message: "Le mot de passe est requis" });
+  // Vérification des champs obligatoires
+  if (!name || !email || !password) {
+    return res.status(400).json({ message: "Tous les champs sont requis" });
   }
 
   try {
-    // Générer le sel et hacher le mot de passe
+    // Vérifier si l'utilisateur existe déjà
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ message: "Cet email est déjà utilisé" });
+    }
+
+    // Vérifier si le rôle est valide
+    const allowedRoles = ["client"]; // Seul "client" est autorisé par défaut
+    const userRole = allowedRoles.includes(role) ? role : "client";
+
+    // Hacher le mot de passe
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
     console.log("✅ Mot de passe haché :", hashedPassword);
 
-    // Vérifier si un rôle a été fourni et restreindre les rôles possibles
-    const allowedRoles = ["client"]; // Seul "client" est autorisé par défaut
-    const userRole = allowedRoles.includes(role) ? role : "client"; 
+    // Création de l'utilisateur
+    const user = new User({
+      name,
+      email,
+      password: hashedPassword, // Stocke le mot de passe haché
+      role: userRole,
+    });
 
-    // Création de l'utilisateur avec rôle sécurisé
-    let user = new User({ name, email, password: hashedPassword, role: userRole });
     await user.save();
+
+    console.log("✅ Utilisateur enregistré :", user.email);
 
     // Génération du token de vérification
     const token = jwt.sign(
@@ -44,22 +59,17 @@ exports.register = async (req, res) => {
     console.log("📧 Lien de vérification généré :", verificationLink);
 
     // Envoi de l'email de vérification
-    try {
-      await sendEmail(
-        email,
-        "Vérifiez votre compte",
-        `Cliquez sur ce lien: ${verificationLink}`,
-        `<h3>Bienvenue ${name}!</h3>
-        <p>Merci de vous inscrire. Veuillez vérifier votre adresse email en cliquant sur le lien ci-dessous :</p>
-        <a href="${verificationLink}">Confirmer votre email</a>`
-      );
+    await sendEmail(
+      email,
+      "Vérifiez votre compte",
+      `Cliquez sur ce lien: ${verificationLink}`,
+      `<h3>Bienvenue ${name}!</h3>
+      <p>Merci de vous inscrire. Veuillez vérifier votre adresse email en cliquant sur le lien ci-dessous :</p>
+      <a href="${verificationLink}">Confirmer votre email</a>`
+    );
 
-      console.log("✅ Email envoyé avec succès !");
-      res.status(201).json({ message: "Inscription réussie, vérifiez votre email." });
-    } catch (emailError) {
-      console.error("❌ Erreur lors de l'envoi de l'email :", emailError);
-      res.status(500).json({ message: "Inscription réussie, mais l'email de vérification n'a pas pu être envoyé." });
-    }
+    console.log("✅ Email envoyé avec succès !");
+    res.status(201).json({ message: "Inscription réussie, vérifiez votre email." });
 
   } catch (error) {
     console.error("❌ Erreur serveur :", error);
@@ -118,12 +128,25 @@ exports.login = async (req, res) => {
 
   try {
     const user = await User.findOne({ email });
-    if (!user) return res.status(400).json({ message: "Email non trouvé" });
+    if (!user) {
+      console.log("❌ Utilisateur non trouvé :", email);
+      return res.status(400).json({ message: "Email non trouvé" });
+    }
+    
+    console.log("🔍 Mot de passe entré :", password);
+    console.log("🔍 Mot de passe stocké en base :", user.password);
 
     const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) return res.status(400).json({ message: "Mot de passe incorrect" });
+    
+    if (!isMatch) {
+      console.log("❌ bcrypt.compare() a échoué !");
+      return res.status(400).json({ message: "Mot de passe incorrect" });
+    }
 
-    if (!user.isVerified) return res.status(400).json({ message: "Veuillez vérifier votre email avant de vous connecter" });
+    if (!user.isVerified) {
+      console.log("⚠️ Email non vérifié pour :", email);
+      return res.status(400).json({ message: "Veuillez vérifier votre email avant de vous connecter" });
+    }
 
     const token = jwt.sign(
       { id: user._id, role: user.role },
@@ -131,6 +154,7 @@ exports.login = async (req, res) => {
       { expiresIn: process.env.JWT_EXPIRES || "7d" }
     );
 
+    console.log("✅ Connexion réussie pour :", email);
     res.json({ token, message: "Connexion réussie" });
   } catch (error) {
     console.error("Erreur serveur:", error);
